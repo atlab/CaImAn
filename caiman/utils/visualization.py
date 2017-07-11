@@ -308,7 +308,7 @@ def nb_view_patches3d(Y_r, A, C, b, f, dims, image_type='mean', Yr=None,
         dimensions of movie (x, y and z)
 
     image_type: 'mean', 'max' or 'corr'
-        image to be overlaid to neurons 
+        image to be overlaid to neurons
         (average of shapes, maximum of shapes or nearest neigbor correlation of raw data)
 
     Yr: np.ndarray
@@ -828,7 +828,7 @@ def plot_contours(A, Cn, thr=None, thr_method='max', maxthr=0.2, nrgthr=0.9, dis
      Cn:  np.ndarray (2D)
                Background image (e.g. mean, correlation)
      thr_method: [optional] string
-              Method of thresholding: 
+              Method of thresholding:
                   'max' sets to zero pixels that have value less than a fraction of the max value
                   'nrg' keeps the pixels that contribute up to a specified fraction of the energy
      maxthr: [optional] scalar
@@ -902,7 +902,7 @@ def plot_contours(A, Cn, thr=None, thr_method='max', maxthr=0.2, nrgthr=0.9, dis
             Bmat = np.reshape(Bvec, np.shape(Cn), order='C')
         else:
             Bmat = np.reshape(Bvec, np.shape(Cn), order='F')
-        cs = pl.contour(y, x, Bmat, [thr], colors=colors)
+        cs = pl.contour(y, x, Bmat, [thr], colors=colors, linewidths=0.8)
         # this fix is necessary for having disjoint figures and borders plotted correctly
         p = cs.collections[0].get_paths()
         v = np.atleast_2d([np.nan, np.nan])
