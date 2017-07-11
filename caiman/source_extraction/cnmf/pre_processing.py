@@ -40,7 +40,7 @@ def interpolate_missing_data(Y):
     coor=[];
     print('checking if missing data')
 #    if np.any(np.isnan(Y[:2000])) or np.any(np.isnan(Y[-2000:])):
-    if np.any(np.isnan(Y)):    
+    if np.any(np.isnan(Y)):
         raise Exception('The algorithm has not been tested with missing values (NaNs). Remove NaNs and rerun the algorithm.')
         # need to
         for idx,row in enumerate(Y):
@@ -125,12 +125,12 @@ def get_noise_fft(Y, noise_range = [0.25,0.5], noise_method = 'logmexp', max_num
         Noise level for each pixel
     """
     T = np.shape(Y)[-1]
-    Y=np.array(Y,dtype=np.float64)
+    #Y=np.array(Y, dtype=np.float64)
 
     if T > max_num_samples_fft:
-        Y=np.concatenate((Y[...,1:np.int(old_div(max_num_samples_fft,3))+1],        
+        Y=np.concatenate((Y[...,1:np.int(old_div(max_num_samples_fft,3))+1],
                          Y[...,np.int(old_div(T,2)-max_num_samples_fft/3/2):np.int(old_div(T,2)+max_num_samples_fft/3/2)],
-                         Y[...,-np.int(old_div(max_num_samples_fft,3)):]),axis=-1)        
+                         Y[...,-np.int(old_div(max_num_samples_fft,3)):]),axis=-1)
 
         T = np.shape(Y)[-1]
 
@@ -138,10 +138,9 @@ def get_noise_fft(Y, noise_range = [0.25,0.5], noise_method = 'logmexp', max_num
     ff = np.arange(0,0.5+old_div(1.,T),old_div(1.,T))
     ind1 = ff > noise_range[0]
     ind2 = ff <= noise_range[1]
-    ind = np.logical_and(ind1,ind2)    
+    ind = np.logical_and(ind1,ind2)
 
     if dims > 1:
-
         xdft = np.fft.rfft(Y,axis=-1)
         psdx = (old_div(1.,T))*abs(xdft)**2
         psdx[...,1:] *= 2
@@ -196,48 +195,48 @@ def get_noise_fft_parallel(Y,n_pixels_per_process=100, dview=None, **kwargs):
 
 
     if type(Y) is np.core.memmap:  # if input file is already memory mapped then find the filename
-        
+
         Y_name = Y.filename
-        
+
     else:
-        
-        if dview is not None:   
-            
+
+        if dview is not None:
+
             raise Exception('ipyparallel backend only works with memory mapped files')
-            
+
         Y_name = Y
 
     argsin=[(Y_name, i, n_pixels_per_process, kwargs) for i in pixel_groups]
     pixels_remaining= Y.shape[0] % n_pixels_per_process
-    if pixels_remaining>0:  
+    if pixels_remaining>0:
         argsin.append((Y_name,Y.shape[0]-pixels_remaining, pixels_remaining, kwargs))
-    
- 
+
+
     if dview is None:
-        
-        print('Single Thread')    
+
+        print('Single Thread')
         results = list(map(fft_psd_multithreading, argsin))
-    
+
     else:
-        
-                    
+
+
         ne = len(dview)
         print(('Running on %d engines.'%(ne)))
 
 
-        if dview.client.profile == 'default':  
+        if dview.client.profile == 'default':
 
-                results = dview.map_sync(fft_psd_multithreading, argsin)            
+                results = dview.map_sync(fft_psd_multithreading, argsin)
 
         else:
             print(('PROFILE:'+ dview.client.profile))
-            results = dview.map_sync(fft_psd_multithreading, argsin)     
-            
-            
+            results = dview.map_sync(fft_psd_multithreading, argsin)
+
+
     _,_,psx_= results[0]
     sn_s=np.zeros(Y.shape[0])
-    psx_s=np.zeros((Y.shape[0],psx_.shape[-1]))        
-    for idx,sn,psx_ in results:        
+    psx_s=np.zeros((Y.shape[0],psx_.shape[-1]))
+    for idx,sn,psx_ in results:
         sn_s[idx]=sn
         psx_s[idx,:]=psx_
 
@@ -432,7 +431,7 @@ def axcov(data, maxlag=5):
     T = len(data)
     bins = np.size(data)
     xcov = np.fft.fft(data, np.power(2, nextpow2(2 * bins - 1)))
-    xcov = np.fft.ifft(np.square(np.abs(xcov)))    
+    xcov = np.fft.ifft(np.square(np.abs(xcov)))
     xcov = np.concatenate([xcov[np.arange(xcov.size - maxlag, xcov.size)],
                            xcov[np.arange(0, maxlag + 1)]])
     #xcov = xcov/np.concatenate([np.arange(T-maxlag,T+1),np.arange(T-1,T-maxlag-1,-1)])
