@@ -77,23 +77,23 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
         Whether to normalize_init data before running the initialization
 
     img: optional [np 2d array]
-        Image with which to normalize. If not present use the mean + offset 
+        Image with which to normalize. If not present use the mean + offset
 
     method: str
-        Initialization method 'greedy_roi' or 'sparse_nmf' 
+        Initialization method 'greedy_roi' or 'sparse_nmf'
 
     max_iter_snmf: int
         Maximum number of sparse NMF iterations
 
     alpha_snmf: scalar
         Sparsity penalty
-        
+
     rolling_sum: boolean
-        Detect new components based on a rolling sum of pixel activity (default: True)        
+        Detect new components based on a rolling sum of pixel activity (default: True)
 
     rolling_length: int
         Length of rolling window (default: 100)
-        
+
     Returns:
     --------
 
@@ -122,7 +122,7 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
     if method == 'local_nmf':
         tsub_lnmf = tsub
         ssub_lnmf = ssub
-        tsub = 1 
+        tsub = 1
         ssub = 1
 
     if gSiz is None:
@@ -140,13 +140,12 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
             img += np.median(img)
 
         Y = old_div(Y, np.reshape(img, d + (-1,), order='F'))
-        alpha_snmf /= np.mean(img)
+        if alpha_snmf is not None: alpha_snmf /= np.mean(img)
 
     # spatial downsampling
-    mean_val = np.mean(Y)
     if ssub != 1 or tsub != 1:
         print("Spatial Downsampling ...")
-        Y_ds = downscale_local_mean(Y, tuple([ssub] * len(d) + [tsub]), cval=mean_val)
+        Y_ds = downscale_local_mean(Y, tuple([ssub] * len(d) + [tsub]), cval=np.mean(Y))
     else:
         Y_ds = Y
 
@@ -158,7 +157,7 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
         if use_hals:
             print('(Hals) Refining Components...')
             Ain, Cin, b_in, f_in = hals(Y_ds, Ain, Cin, b_in, f_in, maxIter=maxIter)
-        
+
     elif method == 'sparse_nmf':
         Ain, Cin, _, b_in, f_in = sparseNMF(Y_ds, nr=K, nb=nb, max_iter_snmf=max_iter_snmf, alpha=alpha_snmf,
                                             sigma_smooth=sigma_smooth_snmf, remove_baseline=True, perc_baseline=perc_baseline_snmf)
@@ -166,10 +165,10 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
     elif method == 'pca_ica':
         Ain, Cin, _, b_in, f_in = ICA_PCA(Y_ds, nr = K, sigma_smooth=sigma_smooth_snmf,  truncate = 2, fun='logcosh',
                     max_iter=max_iter_snmf, tol=1e-10,remove_baseline=True, perc_baseline=perc_baseline_snmf, nb=nb)
-        
+
     elif method == 'local_nmf':
         #todo check this unresolved reference
-        from SourceExtraction.CNMF4Dendrites import CNMF4Dendrites    
+        from SourceExtraction.CNMF4Dendrites import CNMF4Dendrites
         from SourceExtraction.AuxilaryFunctions import GetCentersData
         #Get initialization for components center
         print(Y_ds.transpose([2,0,1]).shape)
@@ -178,18 +177,18 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
         else:
             NumCent=options_local_NMF.pop('NumCent', None)
             # Max number of centers to import from Group Lasso intialization - if 0, we don't run group lasso
-            cent=GetCentersData(Y_ds.transpose([2,0,1]),NumCent) 
+            cent=GetCentersData(Y_ds.transpose([2,0,1]),NumCent)
             sig=Y_ds.shape[:-1]
             # estimate size of neuron - bounding box is 3 times this size. If larger then data, we have no bounding box.
-            cnmf_obj=CNMF4Dendrites(sig=sig, verbose=True,adaptBias=True,**options_local_NMF)  
-            
+            cnmf_obj=CNMF4Dendrites(sig=sig, verbose=True,adaptBias=True,**options_local_NMF)
+
         #Define CNMF parameters
         _, _, _ =cnmf_obj.fit(np.array(Y_ds.transpose([2,0,1]),dtype = np.float),cent)
-        
+
         Ain = cnmf_obj.A
         Cin = cnmf_obj.C
         b_in = cnmf_obj.b
-        f_in = cnmf_obj.f 
+        f_in = cnmf_obj.f
 
     else:
 
@@ -228,20 +227,20 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
         Ain = Ain * np.reshape(img, (np.prod(d), -1), order='F')
         b_in = b_in * np.reshape(img, (np.prod(d), -1), order='F')
 
-       
+
     return Ain, Cin, b_in, f_in, center
 
 #%%
 def ICA_PCA(Y_ds, nr, sigma_smooth=(.5, .5, .5),  truncate = 2, fun='logcosh', max_iter=1000, tol=1e-10,remove_baseline=True, perc_baseline=20, nb=1):
     """ Initialization using ICA and PCA. DOES NOT WORK WELL WORK IN PROGRESS"
-    
+
     Parameters:
     -----------
-    
+
     Returns:
     --------
-        
-    
+
+
     """
     print("not a function to use in the moment ICA PCA \n")
     m = scipy.ndimage.gaussian_filter(np.transpose(Y_ds, [2, 0, 1]), sigma=sigma_smooth, mode='nearest', truncate=truncate)
@@ -252,7 +251,7 @@ def ICA_PCA(Y_ds, nr, sigma_smooth=(.5, .5, .5),  truncate = 2, fun='logcosh', m
         bl = 0
         m1 = m
     pca_comp = nr
-    
+
     T, d1, d2 = np.shape(m1)
     d = d1 * d2
     yr = np.reshape(m1, [T, d], order='F')
@@ -273,16 +272,16 @@ def ICA_PCA(Y_ds, nr, sigma_smooth=(.5, .5, .5),  truncate = 2, fun='logcosh', m
     if masks.size > 0:
         C_in = caiman.base.movies.movie(m1).extract_traces_from_masks(np.array(masks)).T
         A_in = np.reshape(masks,[-1,d1*d2],order = 'F').T
-    
+
     else:
-        
-        A_in = np.zeros([d1*d2,pca_comp])     
+
+        A_in = np.zeros([d1*d2,pca_comp])
         C_in = np.zeros([pca_comp,T])
 
 
 
     m1 = yr.T - A_in.dot(C_in) + np.maximum(0, bl.flatten())[:, np.newaxis]
-    
+
     model = NMF(n_components=nb, init='random', random_state=0)
 
     b_in = model.fit_transform(np.maximum(m1, 0))
@@ -313,7 +312,7 @@ def sparseNMF(Y_ds, nr,  max_iter_snmf=500, alpha=10e2, sigma_smooth=(.5, .5, .5
         percentile to remove frmo movie before NMF
 
     nb: int
-        Number of background components    
+        Number of background components
 
     Returns:
     -------
@@ -396,10 +395,10 @@ def greedyROI(Y, nr=30, gSig=[5, 5], gSiz=[11, 11], nIter=5, kernel=None, nb=1, 
 
     nb: int
         Number of background components
-        
+
     rolling_max: boolean
         Detect new components based on a rolling sum of pixel activity (default: True)
-        
+
     rolling_length: int
         Length of rolling window (default: 100)
 
@@ -478,7 +477,7 @@ def greedyROI(Y, nr=30, gSig=[5, 5], gSiz=[11, 11], nIter=5, kernel=None, nb=1, 
             dataTemp = np.zeros(ModLen)
             dataTemp[[slice(*a) for a in Lag]] = coef
             dataTemp = imblur(dataTemp[..., np.newaxis], sig=gSig, siz=gSiz, kernel=kernel)
-            temp = dataTemp * score.reshape([1] * (Y.ndim - 1) + [-1])            
+            temp = dataTemp * score.reshape([1] * (Y.ndim - 1) + [-1])
             rho[[slice(*a) for a in Mod]] -= temp.copy()
             if rolling_sum:
                 rho_filt = scipy.signal.lfilter(rolling_filter,1.,rho[[slice(*a) for a in Mod]]**2)
@@ -544,7 +543,7 @@ def finetune(Y, cin, nIter=5):
 #%%
 
 
-def imblur(Y, sig=5, siz=11, nDimBlur=None, kernel=None, opencv = True):
+def imblur(Y, sig=5, siz=11, nDimBlur=None, kernel=None, opencv=False):
     """
     Spatial filtering with a Gaussian or user defined kernel
 
@@ -591,14 +590,14 @@ def imblur(Y, sig=5, siz=11, nDimBlur=None, kernel=None, opencv = True):
                     if sys.version_info >= (3, 0):
                         X[:,:,frame] = cv2.GaussianBlur(X[:,:,frame],tuple(siz),sig[0],None,sig[1],cv2.BORDER_CONSTANT)
                     else:
-                        X[:,:,frame] = cv2.GaussianBlur(X[:,:,frame],tuple(siz),sig[0],sig[1],cv2.BORDER_CONSTANT,0)               
-                
+                        X[:,:,frame] = cv2.GaussianBlur(X[:,:,frame],tuple(siz),sig[0],sig[1],cv2.BORDER_CONSTANT,0)
+
             else:
                 if sys.version_info >= (3, 0):
-                    X = cv2.GaussianBlur(X,tuple(siz),sig[0],None,sig[1],cv2.BORDER_CONSTANT) 
+                    X = cv2.GaussianBlur(X,tuple(siz),sig[0],None,sig[1],cv2.BORDER_CONSTANT)
                 else:
-                    X = cv2.GaussianBlur(X,tuple(siz),sig[0],sig[1],cv2.BORDER_CONSTANT,0) 
-        else:                
+                    X = cv2.GaussianBlur(X,tuple(siz),sig[0],sig[1],cv2.BORDER_CONSTANT,0)
+        else:
             for i in range(nDimBlur):
                 h = np.exp(
                     old_div(-np.arange(-np.floor(old_div(siz[i], 2)), np.floor(old_div(siz[i], 2)) + 1)**2, (2 * sig[i]**2)))
@@ -606,7 +605,7 @@ def imblur(Y, sig=5, siz=11, nDimBlur=None, kernel=None, opencv = True):
                 shape = [1] * len(Y.shape)
                 shape[i] = -1
                 X = correlate(X, h.reshape(shape), mode='constant')
-                
+
 
     else:
         X = correlate(Y, kernel[..., np.newaxis], mode='constant')
