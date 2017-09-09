@@ -14,10 +14,10 @@ from builtins import range
 from past.utils import old_div
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage import label,center_of_mass
-import scipy 
+import scipy
 import numpy as np
 import time
-from scipy.optimize import linear_sum_assignment   
+from scipy.optimize import linear_sum_assignment
 import json
 from skimage.filters import sobel
 from skimage.morphology import watershed
@@ -27,7 +27,7 @@ import pylab as pl
 import zipfile
 import tempfile
 import shutil
-import os 
+import os
 
 #%%
 def com(A, d1, d2):
@@ -60,15 +60,15 @@ def com(A, d1, d2):
     return cm
 
 
-#%% 
+#%%
 def mask_to_2d(mask):
     #todo todocument
     if mask.ndim > 2:
         ncomps,d1,d2 = np.shape(mask)
         dims = d1,d2
         return scipy.sparse.coo_matrix(np.reshape(mask[:].transpose([1,2,0]),(np.prod(dims),-1,),order='F'))
-    else:    
-        dims  = np.shape(mask)    
+    else:
+        dims  = np.shape(mask)
         return scipy.sparse.coo_matrix(np.reshape(mask,(np.prod(dims),-1,),order='F'))
 
 
@@ -83,8 +83,8 @@ def get_distance_from_A(masks_gt,masks_comp, min_dist = 10 ):
 
     cm_ben = [ scipy.ndimage.center_of_mass(mm) for mm in masks_gt]
     cm_cnmf = [ scipy.ndimage.center_of_mass(mm) for mm in masks_comp]
-    
-    return distance_masks([A_ben,A_cnmf],[cm_ben,cm_cnmf], min_dist )  
+
+    return distance_masks([A_ben,A_cnmf],[cm_ben,cm_cnmf], min_dist )
 #%%
 def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dist = 10, print_assignment= False,
                                      plot_results = False, Cn=None, labels = None, cmap = 'viridis', D = None):
@@ -100,17 +100,17 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
     masks_comp: bool ndarray  components x d1 x d2
         mask to compare to
 
-    thresh_cost: double 
-        max cost accepted 
+    thresh_cost: double
+        max cost accepted
 
     min_dist: min distance between cm
 
     print_assignment:
         for hungarian algorithm
 
-    plot_results: bool    
+    plot_results: bool
 
-    Cn: 
+    Cn:
         correlation image or median
 
     D: list of ndarrays
@@ -119,7 +119,7 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
     Returns:
     --------
     idx_tp_1:
-        indeces true pos ground truth mask 
+        indeces true pos ground truth mask
 
     idx_tp_2:
         indeces true pos comp
@@ -130,10 +130,10 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
     idx_fp_2:
         indeces false pos
 
-    performance:  
+    performance:
 
     """
-   
+
     ncomps,d1,d2 = np.shape(masks_gt)
     dims = d1,d2
 
@@ -145,22 +145,22 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
     cm_ben = [ scipy.ndimage.center_of_mass(mm) for mm in masks_gt]
     cm_cnmf = [ scipy.ndimage.center_of_mass(mm) for mm in masks_comp]
 
-    
+
     if D is None:
         #% find distances and matches
         # find the distance between each masks
-        D=distance_masks([A_ben,A_cnmf],[cm_ben,cm_cnmf], min_dist )  
+        D=distance_masks([A_ben,A_cnmf],[cm_ben,cm_cnmf], min_dist )
         level = 0.98
     else:
         level = .98
-        
-        
-          
-    
-    
-        
-    
-    
+
+
+
+
+
+
+
+
     matches,costs=find_matches(D,print_assignment=print_assignment)
     matches=matches[0]
     costs=costs[0]
@@ -171,16 +171,16 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
     FP = np.shape(masks_comp)[0] - TP
     TN = 0
 
-    performance = dict() 
+    performance = dict()
     performance['recall'] = old_div(TP,(TP+FN))
-    performance['precision'] = old_div(TP,(TP+FP)) 
+    performance['precision'] = old_div(TP,(TP+FP))
     performance['accuracy'] = old_div((TP+TN),(TP+FP+FN+TN))
     performance['f1_score'] = 2*TP/(2*TP+FP+FN)
     print(performance)
     #%%
     idx_tp = np.where(np.array(costs)<thresh_cost)[0]
     idx_tp_ben = matches[0][idx_tp]    # ground truth
-    idx_tp_cnmf = matches[1][idx_tp]   # algorithm - comp 
+    idx_tp_cnmf = matches[1][idx_tp]   # algorithm - comp
 
     idx_fn = np.setdiff1d(list(range(np.shape(masks_gt)[0])),matches[0][idx_tp])
 
@@ -201,7 +201,7 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
             pl.subplot(1,2,1)
             pl.imshow(Cn,vmin=lp,vmax=hp, cmap = cmap)
             [pl.contour(norm_nrg(mm),levels=[level],colors='w',linewidths=1) for mm in masks_comp[idx_tp_comp]]
-            [pl.contour(norm_nrg(mm),levels=[level],colors='r',linewidths=1) for mm in masks_gt[idx_tp_gt]] 
+            [pl.contour(norm_nrg(mm),levels=[level],colors='r',linewidths=1) for mm in masks_gt[idx_tp_gt]]
             if labels is None:
                 pl.title('MATCHES')
             else:
@@ -209,21 +209,21 @@ def nf_match_neurons_in_binary_masks(masks_gt,masks_comp,thresh_cost=.7, min_dis
             pl.axis('off')
             pl.subplot(1,2,2)
             pl.imshow(Cn,vmin=lp,vmax=hp, cmap = cmap)
-            [pl.contour(norm_nrg(mm),levels=[level],colors='w',linewidths=1) for mm in masks_comp[idx_fp_comp]] 
-            [pl.contour(norm_nrg(mm),levels=[level],colors='r',linewidths=1) for mm in masks_gt[idx_fn_gt]] 
+            [pl.contour(norm_nrg(mm),levels=[level],colors='w',linewidths=1) for mm in masks_comp[idx_fp_comp]]
+            [pl.contour(norm_nrg(mm),levels=[level],colors='r',linewidths=1) for mm in masks_gt[idx_fn_gt]]
             if labels is None:
                 pl.title('FALSE POSITIVE (w), FALSE NEGATIVE (r)')
             else:
                 pl.title(labels[1]+'(w), ' + labels[0] + '(r)')
             pl.axis('off')
-        except Exception, e:
+        except Exception as e:
             print("not able to plot precision recall usually because we are on travis")
             print(e)
-    return  idx_tp_gt,idx_tp_comp, idx_fn_gt, idx_fp_comp, performance 
+    return  idx_tp_gt,idx_tp_comp, idx_fn_gt, idx_fp_comp, performance
 
 #%% threshold
 def norm_nrg(a_):
-    
+
     a = a_.copy()
     dims = a.shape
     a = a.reshape(-1,order = 'F')
@@ -263,7 +263,7 @@ def distance_masks(M_s,cm_s,max_dist):
 
     """
     D_s=[]
-    
+
     for gt_comp,test_comp,cmgt_comp,cmtest_comp in zip(M_s[:-1],M_s[1:],cm_s[:-1],cm_s[1:]):
 
         #todo : better with a function that calls itself
@@ -310,7 +310,7 @@ def distance_masks(M_s,cm_s,max_dist):
                 else:
                     D[i,j] = 1
 
-        D_s.append(D)            
+        D_s.append(D)
     return D_s
 
 
@@ -324,7 +324,7 @@ def find_matches(D_s, print_assignment=False):
     t_start=time.time()
     for ii,D in enumerate(D_s):
         #we make a copy not to set changes in the original
-        DD=D.copy()    
+        DD=D.copy()
         if np.sum(np.where(np.isnan(DD)))>0:
             raise Exception('Distance Matrix contains NaN, not allowed!')
 
@@ -332,17 +332,17 @@ def find_matches(D_s, print_assignment=False):
         indexes = linear_sum_assignment(DD)
         indexes2=[(ind1,ind2) for ind1,ind2 in zip(indexes[0],indexes[1])]
         matches.append(indexes)
-        DD=D.copy()   
+        DD=D.copy()
         total = []
         #we want to extract those informations from the hungarian algo
         for row, column in indexes2:
             value = DD[row,column]
             if print_assignment:
                 print(('(%d, %d) -> %f' % (row, column, value)))
-            total.append(value)      
+            total.append(value)
         print(('FOV: %d, shape: %d,%d total cost: %f' % (ii, DD.shape[0],DD.shape[1], np.sum(total))))
         print((time.time()-t_start))
-        costs.append(total)      
+        costs.append(total)
         # send back the results in the format we want
     return matches,costs
 
@@ -362,10 +362,10 @@ def link_neurons(matches,costs,max_cost=0.6,min_FOV_present=None):
         cost associated to each match in matches
 
     max_cost: float
-        maximum allowed value of the 1- intersection over union metric    
+        maximum allowed value of the 1- intersection over union metric
 
     min_FOV_present: int
-        number of FOVs that must consequently contain the neuron starting from 0. If none 
+        number of FOVs that must consequently contain the neuron starting from 0. If none
         the neuro must be present in each FOV
 
     Returns:
@@ -383,17 +383,17 @@ def link_neurons(matches,costs,max_cost=0.6,min_FOV_present=None):
         neuron=[]
         neuron.append(idx)
         for match,cost,chk in zip(matches,costs,list(range(1,num_chunks))):
-            rows,cols=match        
+            rows,cols=match
             m_neur=np.where(rows==neuron[-1])[0].squeeze()
-            if m_neur.size > 0:                           
+            if m_neur.size > 0:
                 if cost[m_neur]<=max_cost:
                     neuron.append(cols[m_neur])
                 else:
                     break
             else:
                 break
-        if len(neuron)>min_FOV_present:           
-            num_neurons+=1        
+        if len(neuron)>min_FOV_present:
+            num_neurons+=1
             neurons.append(neuron)
 
     neurons=np.array(neurons).T
@@ -421,7 +421,7 @@ def nf_load_masks(file_name,dims):
 #%%
 def nf_masks_to_json(binary_masks,json_filename):
     """
-    Take as input a tensor of binary mask and produces json format for neurofinder 
+    Take as input a tensor of binary mask and produces json format for neurofinder
 
     Parameters:
     -----------
@@ -444,7 +444,7 @@ def nf_masks_to_json(binary_masks,json_filename):
     with open(json_filename, 'w') as f:
         f.write(json.dumps(regions))
 
-    return regions            
+    return regions
 
 #%%
 
@@ -453,7 +453,7 @@ def nf_read_roi(fileobj):
     '''
     points = read_roi(fileobj)
     Read ImageJ's ROI format
-    
+
     Addapted from https://gist.github.com/luispedro/3437255
     '''
 # This is based on:
@@ -518,9 +518,9 @@ def nf_read_roi(fileobj):
     right = get16()
     n_coordinates = get16()
 
-    x1 = getfloat() 
-    y1 = getfloat() 
-    x2 = getfloat() 
+    x1 = getfloat()
+    y1 = getfloat()
+    x2 = getfloat()
     y2 = getfloat()
     stroke_width = get16()
     shape_roi_size = get32()
@@ -576,11 +576,11 @@ def nf_read_roi_zip(fname,dims,return_names = False):
     else:
         return masks
 #%%
-def nf_merge_roi_zip(fnames, idx_to_keep, new_fold):    
+def nf_merge_roi_zip(fnames, idx_to_keep, new_fold):
 
     """
     Create a zip file containing ROIs for ImageJ by combining elements from a list of ROI zip files
-    
+
     Parameters:
     -----------
         fnames: str
@@ -591,32 +591,32 @@ def nf_merge_roi_zip(fnames, idx_to_keep, new_fold):
 
         new_fold: str
             name of the output zip file (without .zip extension)
-    
-    """    
+
+    """
     folders_rois = []
     files_to_keep = []
     # unzip the files and keep only the ones that are requested
     for fn,idx in zip(fnames,idx_to_keep):
         dirpath = tempfile.mkdtemp()
-        folders_rois.append(dirpath)        
+        folders_rois.append(dirpath)
         with zipfile.ZipFile(fn) as zf:
-            name_rois = zf.namelist() 
+            name_rois = zf.namelist()
             print(len(name_rois))
         zip_ref = zipfile.ZipFile(fn, 'r')
-        zip_ref.extractall(dirpath)                
+        zip_ref.extractall(dirpath)
         files_to_keep.append([os.path.join(dirpath,ff) for ff in np.array(name_rois)[idx]])
         zip_ref.close()
-    
+
     os.makedirs(new_fold)
     for fls in files_to_keep:
         for fl in fls:
             shutil.move(fl,new_fold)
-    shutil.make_archive(new_fold, 'zip', new_fold)        
+    shutil.make_archive(new_fold, 'zip', new_fold)
     shutil.rmtree(new_fold)
 
 
 
-#%%    
+#%%
 def extract_binary_masks_blob(A,  neuron_radius,dims,num_std_threshold=1, minCircularity= 0.5,
                               minInertiaRatio = 0.2,minConvexity = .8):
     """
@@ -729,7 +729,7 @@ def extract_binary_masks_blob_parallel(A,  neuron_radius,dims,num_std_threshold=
                                        minInertiaRatio = 0.2,minConvexity = .8,dview=None):
     #todo todocument
 
-    pars=[]    
+    pars=[]
     for a in range(A.shape[-1]):
         pars.append([A[:,a],  neuron_radius,dims,num_std_threshold, minCircularity, minInertiaRatio,minConvexity])
     if dview is not None:
@@ -749,7 +749,7 @@ def extract_binary_masks_blob_parallel(A,  neuron_radius,dims,num_std_threshold=
     return  masks,is_pos,is_neg
 
 
-#%%   
+#%%
 def extract_binary_masks_blob_parallel_place_holder(pars):
     A,  neuron_radius, dims, num_std_threshold , minCircularity , minInertiaRatio ,minConvexity =pars
     masks_ws,pos_examples,neg_examples = extract_binary_masks_blob(A,  neuron_radius,
@@ -770,7 +770,7 @@ def extractROIsFromPCAICA(spcomps, numSTD=4, gaussiansigmax=2 , gaussiansigmay=2
     spcompomps, 3d array containing the spatial components
 
     numSTD: number of standard deviation above the mean of the spatial component to be considered signiificant
-    """        
+    """
 
     numcomps, width, height=spcomps.shape
 
@@ -797,7 +797,7 @@ def extractROIsFromPCAICA(spcomps, numSTD=4, gaussiansigmax=2 , gaussiansigmay=2
             tmp_mask=np.asarray(labeledpos==jj)
             allMasks.append(tmp_mask)
 
-    return allMasks,maskgrouped 
+    return allMasks,maskgrouped
 
 
 def detect_duplicates(file_name,dist_thr = 0.1, FOV = (512,512)):
@@ -811,13 +811,13 @@ def detect_duplicates(file_name,dist_thr = 0.1, FOV = (512,512)):
         dist_thr:   distance threshold for duplicate detection
 
         FOV:        dimensions of the FOV
-    
+
     Returns:
     --------
         duplicates  : list of indeces with duplicate entries
-        
+
         ind_keep    : list of kept indeces
-        
+
     """
     rois = nf_read_roi_zip(file_name,FOV)
     cm = [scipy.ndimage.center_of_mass(mm) for mm in rois]
@@ -829,7 +829,7 @@ def detect_duplicates(file_name,dist_thr = 0.1, FOV = (512,512)):
     ind = list(np.unique(indeces[1][indeces[1]>indeces[0]]))
     ind_keep = list(set(range(D.shape[0]))-set(ind))
     duplicates = list(np.unique(np.concatenate((indeces[0],indeces[1]))))
-    
+
     return duplicates, ind_keep
 
 
@@ -909,12 +909,12 @@ def detect_duplicates(file_name,dist_thr = 0.1, FOV = (512,512)):
 
     #%%
 #def get_roi_from_spatial_component(sp_comp, min_radius, max_radius, roughness=2, zoom_factor=1, center_range=2,z_step=1,thresh_iou=.4):
-#     
-#     
+#
+#
 #     if sp_comp.ndim > 2:
 #         center=center_of_mass(sp_comp[0])
 #         roi=cell_magic_wand_3d_IOU(sp_comp,center,min_radius, max_radius, roughness=roughness, zoom_factor=zoom_factor, center_range=center_range, z_step=z_step,thresh_iou=thresh_iou)
-#     else:            
+#     else:
 #         center=center_of_mass(sp_comp)
 #         roi=cell_magic_wand(sp_comp,center,min_radius, max_radius, roughness=roughness, zoom_factor=zoom_factor, center_range=center_range)
 #     print sp_comp.shape,roi.shape
@@ -925,33 +925,33 @@ def detect_duplicates(file_name,dist_thr = 0.1, FOV = (512,512)):
 #     else:
 #         pl.imshow(sp_comp)
 #     pl.subplot(1,2,2)
-#     pl.cla()    
+#     pl.cla()
 #     pl.imshow(roi)
-##     pl.plot(center[1],center[0],'k.')     
+##     pl.plot(center[1],center[0],'k.')
 #     pl.pause(.3)
-#     print 'Roi Size:' + str(np.sum(roi)) 
+#     print 'Roi Size:' + str(np.sum(roi))
 #     return roi
-##%%     
+##%%
 #def get_roi_from_spatial_component_place_holder(pars):
 #    sp_comp, min_radius, max_radius, roughness, zoom_factor, center_range,z_step,thresh_iou = pars
 #    roi=get_roi_from_spatial_component(sp_comp,min_radius, max_radius, roughness=roughness, zoom_factor=zoom_factor, center_range=center_range,z_step=z_step,thresh_iou=thresh_iou)
 #    return roi
 ##%%
-#def get_roi_from_spatial_component_parallel(sp_comps,min_radius, max_radius, other_imgs=None,dview=None, roughness=2, zoom_factor=1, center_range=2,z_step=1,thresh_iou=.4):   
+#def get_roi_from_spatial_component_parallel(sp_comps,min_radius, max_radius, other_imgs=None,dview=None, roughness=2, zoom_factor=1, center_range=2,z_step=1,thresh_iou=.4):
 #
 #    pars=[]
 #    for sp_comp in sp_comps:
 #        if other_imgs is None:
 #            pars.append([sp_comp, min_radius, max_radius, roughness, zoom_factor, center_range,z_step,thresh_iou])
 #        else:
-#           
+#
 #            pars.append([np.dstack([sp_comp]+other_imgs).transpose(2,0,1), min_radius, max_radius, roughness, zoom_factor, center_range,z_step,thresh_iou])
-#            
-#        
+#
+#
 #    if dview is not None:
 #        rois=dview.map_sync(get_roi_from_spatial_component_place_holder,pars)
-#        
+#
 #    else:
 #        rois=map(get_roi_from_spatial_component_place_holder,pars)
-#        
-#    return rois        
+#
+#    return rois
