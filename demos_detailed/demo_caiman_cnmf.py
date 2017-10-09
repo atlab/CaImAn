@@ -36,11 +36,11 @@ from caiman.source_extraction.cnmf.utilities import extract_DF_F
 from caiman.components_evaluation import evaluate_components
 from caiman.utils.visualization import plot_contours,view_patches_bar
 from caiman.utils.utils import download_demo
+from caiman.cluster import setup_cluster
+# %% RUN ANALYSIS
+c, dview, n_processes = setup_cluster(
+    backend='local', n_processes=None, single_thread=False)
 #%%
-
-c,dview,n_processes = cm.cluster.setup_cluster(backend = 'local',n_processes = None,single_thread = False)
-#%%
-
 is_patches=True
 is_dendrites=False 
 
@@ -107,6 +107,7 @@ if not is_patches:
     cnm = cnm.fit(images)
     crd = plot_contours(cnm.A, Cn, thr=0.9)
     C_dff = extract_DF_F(Yr, cnm.A, cnm.C, cnm.bl, quantileMin = 8, frames_window = 200, dview = dview)
+    pl.figure()
     pl.plot(C_dff.T)
     #%%
 else:
@@ -134,8 +135,7 @@ else:
     print(('Number of components:' + str(A_tot.shape[-1])))
     #%%
     pl.figure()
-    crd = plot_contours(A_tot, Cn, thr=0.9)
-    
+    crd = plot_contours(A_tot, Cn, thr=0.9)    
     #%%
     final_frate = 10# approx final rate  (after eventual downsampling )
     Npeaks = 10
@@ -172,7 +172,7 @@ else:
                     f_in=f_tot, rf=None, stride=None, method_deconvolution='oasis', gnb = 1,  low_rank_background = False)
     cnm = cnm.fit(images)
 
-    #%
+#%
 A, C, b, f, YrA, sn = cnm.A, cnm.C, cnm.b, cnm.f, cnm.YrA, cnm.sn
 
 #%%
@@ -185,26 +185,49 @@ traces = C + YrA
 fitness_raw, fitness_delta, erfc_raw, erfc_delta, r_values, significant_samples = \
     evaluate_components(Y, traces, A, C, b, f, final_frate, remove_baseline=True,
                                       N=5, robust_std=False, Athresh=0.1, Npeaks=Npeaks,  thresh_C=0.3)
+#%%
+from caiman.components_evaluation import evaluate_components_CNN
+predictions,final_crops = evaluate_components_CNN(A,dims,gSig,model_name = 'use_cases/CaImAnpaper/cnn_model')
+#%%
+threshold = .95
+from caiman.utils.visualization import matrixMontage
+pl.figure()
+matrixMontage(np.squeeze(final_crops[np.where(predictions[:,1]>=threshold)[0]]))
+pl.figure()
+matrixMontage(np.squeeze(final_crops[np.where(predictions[:,0]>=threshold)[0]]))
+#%%
+thresh = .95
+idx_components_cnn = np.where(predictions[:,1]>=thresh)[0]
 
-idx_components_r = np.where(r_values >= .95)[0]
-idx_components_raw = np.where(fitness_raw < -100)[0]
-idx_components_delta = np.where(fitness_delta < -100)[0]
+print(' ***** ')
+print((len(final_crops)))
+print((len(idx_components_cnn)))
+#print((len(idx_blobs)))    
+#%
+idx_components_r = np.where((r_values >= .99))[0]
+idx_components_raw = np.where(fitness_raw < -60)[0]
+idx_components_delta = np.where(fitness_delta < -60)[0]   
 
-
-#min_radius = gSig[0] - 2
-#masks_ws, idx_blobs, idx_non_blobs = extract_binary_masks_blob(
-#    A.tocsc(), min_radius, dims, num_std_threshold=1,
-#    minCircularity=0.7, minInertiaRatio=0.2, minConvexity=.5)
+bad_comps = np.where((r_values <= .2) | (fitness_raw >= -4) | (predictions[:,1]<=.05))[0]
+ 
+#idx_and_condition_1 = np.where((r_values >= .65) & ((fitness_raw < -20) | (fitness_delta < -20)) )[0]
 
 idx_components = np.union1d(idx_components_r, idx_components_raw)
 idx_components = np.union1d(idx_components, idx_components_delta)
+idx_components = np.union1d(idx_components,idx_components_cnn)
+idx_components = np.setdiff1d(idx_components,bad_comps)
+#idx_components = np.intersect1d(idx_components,idx_size_neuro)
+#idx_components = np.union1d(idx_components, idx_and_condition_1)
+#idx_components = np.union1d(idx_components, idx_and_condition_2)
+
 #idx_blobs = np.intersect1d(idx_components, idx_blobs)
-idx_components_bad = np.setdiff1d(list(range(len(traces))), idx_components)
+#idx_components = idx_components_cnn
+idx_components_bad = np.setdiff1d(list(range(len(r_values))), idx_components)
+
 
 print(' ***** ')
-print((len(traces)))
+print((len(r_values)))
 print((len(idx_components)))
-#print((len(idx_blobs)))
 #%%
 save_results = True
 if save_results:
