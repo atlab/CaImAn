@@ -9,6 +9,12 @@ from setuptools.extension import Extension
     Installation script for anaconda installers
 """
 
+# compile with:     python setup.py build_ext -i
+# clean up with:    python setup.py clean --all
+ext_modules = [Extension("caiman.source_extraction.cnmf.oasis",
+                         sources=["caiman/source_extraction/cnmf/oasis.pyx"],
+                         include_dirs=[np.get_include()], language="c++")]
+
 here = path.abspath(path.dirname(__file__))
 
 setup(
@@ -40,4 +46,6 @@ setup(
     packages=['caiman'],
     data_files=[	('', ['LICENSE.txt']),
                  ('', ['README.md'])],
+    install_requires=[''],
+    ext_modules=cythonize(ext_modules)
 )
