@@ -215,18 +215,18 @@ def get_noise_fft_parallel(Y,n_pixels_per_process=100, dview=None, **kwargs):
     if dview is None:
         print('Single Thread')
         results = list(map(fft_psd_multithreading, argsin))
-
     else:
-        ne = len(dview)
-        print(('Running on %d engines.'%(ne)))
-
-
-        if dview.client.profile == 'default':
-                results = dview.map_sync(fft_psd_multithreading, argsin)
-
+        if 'multiprocessing' in str(type(dview)):
+            results = dview.map_async(fft_psd_multithreading, argsin).get(9999999)
         else:
-            print(('PROFILE:'+ dview.client.profile))
-            results = dview.map_sync(fft_psd_multithreading, argsin)
+            ne = len(dview)
+            print(('Running on %d engines.'%(ne)))
+            if dview.client.profile == 'default':
+                    results = dview.map_sync(fft_psd_multithreading, argsin)
+
+            else:
+                print(('PROFILE:'+ dview.client.profile))
+                results = dview.map_sync(fft_psd_multithreading, argsin)
 
     _,_,psx_= results[0]
     sn_s=np.zeros(Y.shape[0])
@@ -268,7 +268,7 @@ def fft_psd_parallel(Y,sn_s,i,num_pixels,**kwargs):
 
     **kwargs: dict
         arguments to be passed to get_noise_fft
-        
+
 
      Returns:
      -------

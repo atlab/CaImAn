@@ -26,23 +26,22 @@ from __future__ import print_function
 
 from builtins import str
 from builtins import object
-from past.utils import old_div
 import numpy as np
-from .utilities import CNMFSetParms, update_order
+from .utilities import CNMFSetParms, update_order, normalize_AC, compute_residuals
 from .pre_processing import preprocess_data
-from .initialization import initialize_components
+from .initialization import initialize_components, imblur
 from .merging import merge_components
 from .spatial import update_spatial_components
 from .temporal import update_temporal_components
 from .map_reduce import run_CNMF_patches
-from caiman import components_evaluation
-from .initialization import imblur
+from .oasis import OASIS
+import caiman
+from caiman import components_evaluation, mmapping
 import cv2
 from .online_cnmf import RingBuffer, HALS4activity, demix_and_deconvolve
 from .online_cnmf import init_shapes_and_sufficient_stats, update_shapes, update_num_components
 import scipy
 import psutil
-from caiman.source_extraction.cnmf import oasis
 import pylab as pl
 from time import time
 
@@ -85,8 +84,8 @@ class CNMF(object):
                  remove_very_bad_comps=False, border_pix=0, low_rank_background=True,
                  update_background_components=True, rolling_sum = True, rolling_length = 100,
                  min_corr=.85, min_pnr=20, deconvolve_options_init=None, ring_size_factor=1.5,
-				 center_psf=True,  use_dense=True, deconv_flag = True,
-                 simultaneously=False, n_refit=0):
+				 center_psf=False,  use_dense=True, deconv_flag = True,
+                 simultaneously=False, n_refit=0, del_duplicates=False):
         """
         Constructor of the CNMF method
 
@@ -165,6 +164,9 @@ class CNMF(object):
         block_size: int.
             Number of pixels to be used to perform residual computation in blocks. Decrease if memory problems
 
+        num_blocks_per_run: int
+            In case of memory problems you can reduce this numbers, controlling the number of blocks processed in parallel during residual computing
+
         check_nan: Boolean.
             Check if file contains NaNs (costly for very large files so could be turned off)
 
@@ -225,6 +227,12 @@ class CNMF(object):
             Number of pools (cf. oasis.pyx) prior to the last one that are refitted when
             simultaneously demixing and denoising/deconvolving.
 
+        N_samples_exceptionality : int, optional
+            Number of consecutives intervals to be considered when testing new neuron candidates
+
+		del_duplicates: Bool
+			whether to delete the duplicated created in initialization
+
         Returns:
         --------
         self
@@ -258,6 +266,7 @@ class CNMF(object):
         self.method_deconvolution=method_deconvolution
         self.n_pixels_per_process = n_pixels_per_process
         self.block_size = block_size
+        self.num_blocks_per_run = num_blocks_per_run
         self.check_nan = check_nan
         self.skip_refinement = skip_refinement
         self.normalize_init = normalize_init
@@ -292,14 +301,13 @@ class CNMF(object):
         self.deconv_flag = deconv_flag
         self.simultaneously=simultaneously
         self.n_refit=n_refit
-
-
         self.min_corr = min_corr
         self.min_pnr = min_pnr
         self.deconvolve_options_init = deconvolve_options_init
         self.ring_size_factor = ring_size_factor
         self.center_psf = center_psf
         self.nb_patch = nb_patch
+        self.del_duplicates = del_duplicates
 
         self.options = CNMFSetParms((1,1,1), n_processes, p=p, gSig=gSig, gSiz=gSiz,
 									K=k, ssub=ssub, tsub=tsub,
@@ -374,11 +382,18 @@ class CNMF(object):
         self.options['preprocess_params']['n_pixels_per_process'] = self.n_pixels_per_process
         self.options['spatial_params']['n_pixels_per_process'] = self.n_pixels_per_process
 
-        if self.block_size is None:
-            self.block_size = self.n_pixels_per_process
+#        if self.block_size is None:
+#            self.block_size = self.n_pixels_per_process
+#
+#        if self.num_blocks_per_run is None:
+#           self.num_blocks_per_run = 20
+
         # number of pixels to process at the same time for dot product. Make it
         # smaller if memory problems
         self.options['temporal_params']['block_size'] = self.block_size
+        self.options['temporal_params']['num_blocks_per_run'] = self.num_blocks_per_run
+        self.options['spatial_params']['block_size'] = self.block_size
+        self.options['spatial_params']['num_blocks_per_run'] = self.num_blocks_per_run
 
         print(('using ' + str(self.n_pixels_per_process) + ' pixels per process'))
         print(('using ' + str(self.block_size) + ' block_size'))
@@ -399,15 +414,11 @@ class CNMF(object):
 
             if self.only_init:  # only return values after initialization
 
-                nA = np.squeeze(np.array(np.sum(np.square(self.Ain), axis=0)))
-                nr = nA.size
-                Cin = scipy.sparse.coo_matrix(self.Cin)
-                YA = (self.Ain.T.dot(Yr).T) * scipy.sparse.spdiags(old_div(1., nA), 0, nr, nr)
-                AA = ((self.Ain.T.dot(self.Ain)) * scipy.sparse.spdiags(old_div(1., nA), 0, nr, nr))
 
-                self.YrA = YA - Cin.T.dot(AA)
+                self.YrA = compute_residuals(Yr,self.Ain,self.b_in,self.Cin,self.f_in, dview=self.dview, block_size=1000, num_blocks_per_run=5)
+
                 self.A = self.Ain
-                self.C = Cin.todense()
+                self.C = self.Cin
 
                 if self.remove_very_bad_comps:
                     print('removing bad components : ')
@@ -420,7 +431,7 @@ class CNMF(object):
                     print('estimating the quality...')
                     idx_components, idx_components_bad, fitness_raw,\
                     fitness_delta, r_values = components_evaluation.estimate_components_quality(
-                    	traces, Y, self.A, np.array(self.C), self.b_in, self.f_in,
+                    	traces, Y, self.A, self.C, self.b_in, self.f_in,
                         final_frate=final_frate, Npeaks=Npeaks, r_values_min=r_values_min,
                         fitness_min=fitness_min, fitness_delta_min=fitness_delta_min, return_all=True, N=5)
 
@@ -428,7 +439,11 @@ class CNMF(object):
                            ' and discarding  ' + str(len(idx_components_bad))))
                     self.C = self.C[idx_components]
                     self.A = self.A[:, idx_components]
-                    self.YrA = self.YrA[:, idx_components]
+                    self.YrA = self.YrA[idx_components]
+
+
+
+
 
                 self.sn = sn
                 self.b = self.b_in
@@ -438,6 +453,7 @@ class CNMF(object):
                 self.c1 = None
                 self.neurons_sn = None
 
+                self.A, self.C, self.YrA, self.b, self.f = normalize_AC(self.A,self.C,self.YrA,self.b,self.f)
                 return self
 
             print('update spatial ...')
@@ -493,11 +509,11 @@ class CNMF(object):
 
 
             A, C, YrA, b, f, sn, optional_outputs = run_CNMF_patches(images.filename, dims + (T,),
-                                                                     options, rf=self.rf, stride=self.stride,
-                                                                     dview=self.dview, memory_fact=self.memory_fact,
-                                                                     gnb=self.gnb, border_pix=self.border_pix,
-																	 low_rank_background=self.low_rank_background)
-
+                options, rf=self.rf, stride=self.stride,
+                dview=self.dview, memory_fact=self.memory_fact,
+				gnb=self.gnb, border_pix=self.border_pix,
+                low_rank_background=self.low_rank_background,
+                del_duplicates=self.del_duplicates)
 
             # options = CNMFSetParms(Y, self.n_processes, p=self.p, gSig=self.gSig, K=A.shape[
             #                        -1], thr=self.merge_thresh, n_pixels_per_process=self.n_pixels_per_process,
@@ -505,20 +521,53 @@ class CNMF(object):
 
             # options['temporal_params']['method'] = self.method_deconvolution
 
-            print("merging")
-            merged_ROIs = [0]
-            while len(merged_ROIs) > 0:
-                A, C, nr, merged_ROIs, S, bl, c1, sn_n, g = merge_components(Yr, A, [], np.array(C), [], np.array(
-                    C), [], options['temporal_params'], options['spatial_params'], dview=self.dview,
-                    thr=self.merge_thresh, mx=np.Inf)
 
+#            options['spatial_params']['se'] = np.ones((1,) * len(dims), dtype=np.uint8)
+#            options['spatial_params']['update_background_components'] = True
 #            print('update spatial ...')
 #            A, b, C, f = update_spatial_components(
 #                    Yr, C = C, f = f, A_in = A, sn=sn, b_in = b, dview=self.dview, **options['spatial_params'])
 
-            print("update temporal")
-            C, A, b, f, S, bl, c1, neurons_sn, g1, YrA, lam = update_temporal_components(
-                Yr, A, b, C, f, dview=self.dview, bl=None, c1=None, sn=None, g=None, **options['temporal_params'])
+            if self.center_psf: #merge taking best neuron
+                print("merging")
+                merged_ROIs = [0]
+                while len(merged_ROIs) > 0:
+                    A, C, nr, merged_ROIs, S, bl, c1, sn_n, g = merge_components(Yr, A, [], np.array(C), [], np.array(
+                        C), [], options['temporal_params'], options['spatial_params'], dview=self.dview,
+                        thr=self.merge_thresh, mx=np.Inf, fast_merge = True)
+
+                g1 = g
+                neurons_sn = sn_n
+                lam = None
+                YrA = None
+                print("update temporal")
+                C, A, b, f, S, bl, c1, neurons_sn, g1, YrA, lam = update_temporal_components(
+                        Yr, A, b, C, f, dview=self.dview, bl=None, c1=None, sn=None, g=None, **options['temporal_params'])
+
+                options['spatial_params']['se'] = np.ones((1,) * len(dims), dtype=np.uint8)
+                options['spatial_params']['update_background_components'] = True
+                print('update spatial ...')
+                A, b, C, f = update_spatial_components(
+                        Yr, C = C, f = f, A_in = A, sn=sn, b_in = b, dview=self.dview, **options['spatial_params'])
+
+                print("update temporal")
+                C, A, b, f, S, bl, c1, neurons_sn, g1, YrA, lam = update_temporal_components(
+                        Yr, A, b, C, f, dview=self.dview, bl=None, c1=None, sn=None, g=None, **options['temporal_params'])
+
+
+            else:
+
+                print("merging")
+                merged_ROIs = [0]
+                while len(merged_ROIs) > 0:
+                    A, C, nr, merged_ROIs, S, bl, c1, sn_n, g = merge_components(Yr, A, [], np.array(C), [], np.array(
+                        C), [], options['temporal_params'], options['spatial_params'], dview=self.dview,
+                        thr=self.merge_thresh, mx=np.Inf)
+
+                print("update temporal")
+                C, A, b, f, S, bl, c1, neurons_sn, g1, YrA, lam = update_temporal_components(
+                        Yr, A, b, C, f, dview=self.dview, bl=None, c1=None, sn=None, g=None, **options['temporal_params'])
+
 
         self.A = A
         self.C = C
@@ -533,6 +582,8 @@ class CNMF(object):
         self.neurons_sn = neurons_sn
         self.lam = lam
         self.dims = dims
+
+        self.A, self.C, self.YrA, self.b, self.f = normalize_AC(self.A,self.C,self.YrA,self.b,self.f)
 
         return self
 
@@ -593,7 +644,8 @@ class CNMF(object):
         self.YrA2 *= nA[:, None]
 #        self.S2 *= nA[:, None]
         self.neurons_sn2 *= nA
-        self.lam2 *= nA
+        if self.p:
+            self.lam2 *= nA
         z = np.sqrt([b.T.dot(b) for b in self.b2.T])
         self.f2 *= z[:, None]
         self.b2 /= z
@@ -615,24 +667,29 @@ class CNMF(object):
         self.noisyC[self.gnb:self.M, :self.initbatch] = self.C2 + self.YrA2
         self.noisyC[:self.gnb, :self.initbatch] = self.f2
 
-         # next line requires some estimate of the spike size, e.g. running OASIS with penalty=0
-         # or s_min from histogram a la Deneux et al (2016)
-#        self.OASISinstances = [oasis.OASIS(
-#            g=g if g is not None else (gam[0] if self.p == 1 else gam),
-#            s_min=self.thresh_s_min * sn if s_min is None else s_min,
-#            b=b if bl is None else bl)
-#            for gam, sn, b in zip(self.g2, self.neurons_sn2, self.bl2)]
-#         # using L1 instead of min spikesize with lambda obtained from fit on init batch
-        self.OASISinstances = [oasis.OASIS(
-            g=g if g is not None else (gam[0] if self.p == 1 else gam),
-            lam=l if lam is None else lam,
-            s_min=0 if s_min is None else s_min,
-            b=b if bl is None else bl)
-            for gam, l, b in zip(self.g2, self.lam2, self.bl2)]
+        if self.p:
+            # if no parameter for calculating the spike size threshold is given, then use L1 penalty
+            if s_min is None and self.s_min is None and self.thresh_s_min is None:
+                use_L1 = True
+            else:
+                use_L1 = False
 
-        for i, o in enumerate(self.OASISinstances):
-            o.fit(self.noisyC[i + self.gnb, :self.initbatch])
-            self.C_on[i, :self.initbatch] = o.c
+            self.OASISinstances = [OASIS(
+                g = np.ravel(0.01) if self.p == 0 else (np.ravel(g)[0] if g is not None else gam[0]),
+                lam=0 if not use_L1 else (l if lam is None else lam),
+                # if no explicit value for s_min,  use thresh_s_min * noise estimate * sqrt(1-gamma)
+                s_min=0 if use_L1 else (s_min if s_min is not None else
+                                        (self.s_min if self.s_min is not None else
+                                         (self.thresh_s_min * sn * np.sqrt(1 - np.sum(gam))))),
+                b=b if bl is None else bl,
+                g2=0 if self.p < 2 else (np.ravel(g)[1] if g is not None else gam[1]))
+                for gam, l, b, sn in zip(self.g2, self.lam2, self.bl2, self.neurons_sn2)]
+
+            for i, o in enumerate(self.OASISinstances):
+                o.fit(self.noisyC[i + self.gnb, :self.initbatch])
+                self.C_on[i, :self.initbatch] = o.c
+        else:
+            self.C_on[:self.N, :self.initbatch] = self.C2
 
         self.Ab, self.ind_A, self.CY, self.CC = init_shapes_and_sufficient_stats(
             Yr[:, :self.initbatch].reshape(self.dims2 + (-1,), order='F'), self.A2,
@@ -707,15 +764,12 @@ class CNMF(object):
 #        print(np.max(1/scipy.sparse.linalg.norm(self.Ab,axis = 0)))
         self.Yr_buf.append(frame)
 
-        if not self.deconv_flag:
-            simultaneously = False
-
-        if not self.simultaneously:
+        if (not self.simultaneously) or self.p == 0:
             # get noisy fluor value via NNLS (project data on shapes & demix)
             C_in = self.noisyC[:self.M, t - 1].copy()
-            self.noisyC[:self.M, t] = HALS4activity(
+            self.C_on[:self.M, t], self.noisyC[:self.M, t] = HALS4activity(
                 frame, self.Ab, C_in, self.AtA, iters=num_iters_hals, groups=self.groups)
-            if self.deconv_flag:
+            if self.p:
             # denoise & deconvolve
                 for i, o in enumerate(self.OASISinstances):
                     o.fit_next(self.noisyC[nb_ + i, t])
@@ -767,9 +821,9 @@ class CNMF(object):
                 thresh_fitness_raw=self.thresh_fitness_raw, thresh_overlap=self.thresh_overlap,
                 groups=self.groups, batch_update_suff_stat=self.batch_update_suff_stat, gnb=self.gnb,
                 sn=self.sn, g=np.mean(self.g2) if self.p == 1 else np.mean(self.g2, 0),
-                lam=self.lam.mean(), thresh_s_min=self.thresh_s_min, s_min=self.s_min,
+                thresh_s_min=self.thresh_s_min, s_min=self.s_min,
                 Ab_dense=self.Ab_dense[:, :self.M] if self.use_dense else None,
-                oases=self.OASISinstances)
+                oases=self.OASISinstances if self.p else None)
 
             num_added = len(self.ind_A) - self.N
 
@@ -799,9 +853,12 @@ class CNMF(object):
 
                 for _ct in range(self.M - num_added, self.M):
                     self.time_neuron_added.append((_ct - nb_, t))
-                    # N.B. OASISinstances are already updated within update_num_components
-                    self.C_on[_ct, t - mbs + 1:t +
-                              1] = self.OASISinstances[_ct - nb_].get_c(mbs)
+                    if self.p:
+                        # N.B. OASISinstances are already updated within update_num_components
+                        self.C_on[_ct, t - mbs + 1: t + 1] = self.OASISinstances[_ct - nb_].get_c(mbs)
+                    else:
+                        self.C_on[_ct, t - mbs + 1: t + 1] = np.maximum(0,
+                            self.noisyC[_ct, t - mbs + 1: t + 1])
                     if self.simultaneously and self.n_refit:
                         self.AtY_buf = np.concatenate((
                             self.AtY_buf, [Ab_.data[Ab_.indptr[_ct]:Ab_.indptr[_ct + 1]].dot(
@@ -876,6 +933,44 @@ class CNMF(object):
 
                 self.AtA = (Ab_.T.dot(Ab_)).toarray()
 
+                ind_zero = list(np.where(self.AtA.diagonal()<1e-10)[0])
+                if len(ind_zero) > 0:
+                    ind_zero.sort()
+                    ind_zero = ind_zero[::-1]
+                    ind_keep = list(set(range(Ab_.shape[-1])) - set(ind_zero))
+                    ind_keep.sort()
+
+                    if self.use_dense:
+                        self.Ab_dense = np.delete(self.Ab_dense,ind_zero,axis=1)
+                    self.AtA = np.delete(self.AtA,ind_zero,axis=0)
+                    self.AtA = np.delete(self.AtA,ind_zero,axis=1)
+                    self.CY = np.delete(self.CY,ind_zero,axis=0)
+                    self.CC = np.delete(self.CC,ind_zero,axis=0)
+                    self.CC = np.delete(self.CC,ind_zero,axis=1)
+                    self.M -= len(ind_zero)
+                    self.N -= len(ind_zero)
+                    self.noisyC = np.delete(self.noisyC,ind_zero,axis=0)
+                    for ii in ind_zero:
+                        del self.OASISinstances[ii-self.gnb]
+                        #del self.ind_A[ii-self.gnb]
+
+                    self.C_on = np.delete(self.C_on,ind_zero,axis=0)
+                    self.AtY_buf = np.delete(self.AtY_buf,ind_zero,axis=0)
+                    print(1)
+                    #import pdb
+                    #pdb.set_trace()
+                    #Ab_ = Ab_[:,ind_keep]
+                    Ab_ = scipy.sparse.csc_matrix(Ab_[:,ind_keep])
+                    #Ab_ = scipy.sparse.csc_matrix(self.Ab_dense[:,:self.M])
+                    self.Ab_dense_copy = self.Ab_dense
+                    self.Ab_copy = Ab_
+                    self.Ab = Ab_
+                    self.ind_A = list([(self.Ab.indices[self.Ab.indptr[ii]:self.Ab.indptr[ii+1]]) for ii in range(self.gnb,self.M)])
+                    self.groups = list(map(list, update_order(Ab_)[0]))
+
+                if self.n_refit:
+                    self.AtY_buf = Ab_.T.dot(self.Yr_buf.T)
+
         else:  # distributed shape update
             self.update_counter *= .5**(1. / mbs)
             # if not num_added:
@@ -903,6 +998,102 @@ class CNMF(object):
                 self.Ab = Ab_
             self.time_spend += time() - t_start
 
+
+    def compute_residuals(self, Yr):
+        """compute residual for each component (variable YrA)
+
+         Parameters:
+         -----------
+         Yr :    np.ndarray
+                 movie in format pixels (d) x frames (T)
+
+        """
+
+        if 'csc_matrix' not in str(type(self.A)):
+            self.A = scipy.sparse.csc_matrix(self.A)
+        if 'array' not in str(type(self.b)):
+            self.b = self.b.toarray()
+        if 'array' not in str(type(self.C)):
+            self.C = self.C.toarray()
+        if 'array' not in str(type(self.f)):
+            self.f = self.f.toarray()
+
+        Ab = scipy.sparse.hstack((self.A, self.b)).tocsc()
+        nA2 = np.ravel(Ab.power(2).sum(axis=0))
+        nA2_inv_mat = scipy.sparse.spdiags(1./nA2, 0, nA2.shape[0], nA2.shape[0])
+        Cf = np.vstack((self.C, self.f))
+        YA = mmapping.parallel_dot_product(Yr, Ab, dview=self.dview, block_size=2000,
+                                           transpose=True, num_blocks_per_run=5)*nA2_inv_mat
+
+        AA = Ab.T.dot(Ab)*nA2_inv_mat
+        self.YrA = (YA - (AA.T.dot(Cf)).T)[:, :self.A.shape[-1]].T
+
+        return self
+
+    def normalize_components(self):
+        """ normalize components such that spatial components have norm 1
+        """
+        if 'csc_matrix' not in str(type(self.A)):
+            self.A = scipy.sparse.csc_matrix(self.A)
+        if 'array' not in str(type(self.b)):
+            self.b = self.b.toarray()
+        if 'array' not in str(type(self.C)):
+            self.C = self.C.toarray()
+        if 'array' not in str(type(self.f)):
+            self.f = self.f.toarray()
+
+        nA = np.sqrt(np.ravel(self.A.power(2).sum(axis=0)))
+        nA_mat = scipy.sparse.spdiags(nA, 0, nA.shape[0], nA.shape[0])
+        nA_inv_mat = scipy.sparse.spdiags(1./nA, 0, nA.shape[0], nA.shape[0])
+        self.A = self.A*nA_inv_mat
+        self.C = nA_mat*self.C
+        if self.YrA is not None:
+            self.YrA = nA_mat*self.YrA
+        if self.bl is not None:
+            self.bl = nA*self.bl
+        if self.c1 is not None:
+            self.c1 = nA*self.c1
+        if self.neurons_sn is not None:
+            self.neurons_sn *= nA*self.neurons_sn
+
+        nB = np.sqrt(np.ravel((self.b**2).sum(axis=0)))
+        nB_mat = scipy.sparse.spdiags(nB, 0, nB.shape[0], nB.shape[0])
+        nB_inv_mat = scipy.sparse.spdiags(1./nB, 0, nB.shape[0], nB.shape[0])
+        self.b = self.b*nB_inv_mat
+        self.f = nB_mat*self.f
+
+    def view_patches(self, Yr, dims, img=None):
+        """view spatial and temporal components interactively
+
+         Parameters:
+         -----------
+         Yr :    np.ndarray
+                 movie in format pixels (d) x frames (T)
+
+         dims :  tuple
+                 dimensions of the FOV
+
+         img :   np.ndarray
+                 background image for contour plotting. Default is the mean image of all spatial components (d1 x d2)
+
+        """
+        if 'csc_matrix' not in str(type(self.A)):
+            self.A = scipy.sparse.csc_matrix(self.A)
+        if 'array' not in str(type(self.b)):
+            self.b = self.b.toarray()
+
+        pl.ion()
+        nr, T = self.C.shape
+        #nb = self.f.shape[0]
+
+        if self.YrA is None:
+            self.compute_residuals(Yr)
+
+        if img is None:
+            img = np.reshape(np.array(self.A.mean(axis=1)), dims, order='F')
+
+        caiman.utils.visualization.view_patches_bar(Yr, self.A, self.C, self.b, self.f, dims[
+                                                    0], dims[1], YrA=self.YrA, img=img)
 
 def scale(y):
     return (y - np.mean(y)) / (np.max(y) - np.min(y))
