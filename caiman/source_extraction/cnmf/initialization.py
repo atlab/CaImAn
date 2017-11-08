@@ -343,11 +343,6 @@ def ICA_PCA(Y_ds, nr, sigma_smooth=(.5, .5, .5), truncate=2, fun='logcosh', max_
         A_in = np.zeros([d1*d2,pca_comp])
         C_in = np.zeros([pca_comp,T])
 
-    else:
-
-        A_in = np.zeros([d1 * d2, pca_comp])
-        C_in = np.zeros([pca_comp, T])
-
     m1 = yr.T - A_in.dot(C_in) + np.maximum(0, bl.flatten())[:, np.newaxis]
 
     model = NMF(n_components=nb, init='random', random_state=0)
