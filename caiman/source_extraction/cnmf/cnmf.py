@@ -74,7 +74,7 @@ class CNMF(object):
                  Ain=None, Cin=None, b_in=None, f_in=None, do_merge=True,
                  ssub=2, tsub=2, p_ssub=1, p_tsub=1, method_init='greedy_roi', alpha_snmf=None,
                  rf=None, stride=None, memory_fact=1, gnb=1, nb_patch=1, only_init_patch=False,
-                 method_deconvolution='oasis', n_pixels_per_process=4000, block_size=20000,
+                 method_deconvolution='oasis', n_pixels_per_process=4000, block_size=5000, num_blocks_per_run = 20,
                  check_nan=True, skip_refinement=False, normalize_init=True, options_local_NMF=None,
 				 minibatch_shape=100, minibatch_suff_stat=3,
                  update_num_comps=True, rval_thr=0.9, thresh_fitness_delta=-20,
@@ -421,7 +421,7 @@ class CNMF(object):
                 self.C = self.Cin
 
                 if self.remove_very_bad_comps:
-                    print('removing bad components : ')
+                    print('removing bad components')
                     final_frate = 10
                     r_values_min = 0.5  # threshold on space consistency
                     fitness_min = -15  # threshold on time variability
