@@ -256,33 +256,33 @@ def initialize_components(Y, K=30, gSig=[5, 5], gSiz=None, ssub=1, tsub=1, nIter
         Ain = np.reshape(Ain, ds + (K,), order='F')
 
         if len(ds) == 2:
-            Ain = resize(Ain, d + (K,), order=1)
+            Ain = resize(Ain, d + (K,), order=1, mode='constant')
 
         else:  # resize only deals with 2D images, hence apply resize twice
             Ain = np.reshape([resize(a, d[1:] + (K,), order=1)
                               for a in Ain], (ds[0], d[1] * d[2], K), order='F')
-            Ain = resize(Ain, (d[0], d[1] * d[2], K), order=1)
+            Ain = resize(Ain, (d[0], d[1] * d[2], K), order=1, mode='constant')
 
         Ain = np.reshape(Ain, (np.prod(d), K), order='F')
 
     b_in = np.reshape(b_in, ds + (nb,), order='F')
 
     if len(ds) == 2:
-        b_in = resize(b_in, d + (nb,), order=1)
+        b_in = resize(b_in, d + (nb,), order=1, mode='constant')
     else:
-        b_in = np.reshape([resize(b, d[1:] + (nb,), order=1)
+        b_in = np.reshape([resize(b, d[1:] + (nb,), order=1, mode='constant')
                            for b in b_in], (ds[0], d[1] * d[2], nb), order='F')
-        b_in = resize(b_in, (d[0], d[1] * d[2], nb), order=1)
+        b_in = resize(b_in, (d[0], d[1] * d[2], nb), order=1, mode='constant')
 
     b_in = np.reshape(b_in, (np.prod(d), nb), order='F')
 
     if Ain.size > 0:
-        Cin = resize(Cin.astype(float), [K, T])
+        Cin = resize(Cin.astype(float), [K, T], mode='constant')
         center = np.asarray([center_of_mass(a.reshape(d, order='F')) for a in Ain.T])
     else:
         center = []
 
-    f_in = resize(np.atleast_2d(f_in), [nb, T])
+    f_in = resize(np.atleast_2d(f_in), [nb, T], mode='constant')
 
     if normalize_init is True:
         if Ain.size > 0:
